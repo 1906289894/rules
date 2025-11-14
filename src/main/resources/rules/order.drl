@@ -1,0 +1,76 @@
+package com.rules.order
+
+import com.wb.rules.entity.Order
+
+global java.util.List<Double> blackList;
+
+//规则1
+rule "order_rule_1"
+when
+    $order: Order(amount<100)
+then
+    $order.setScore(0.00);
+    System.out.println("成功匹配到规则一：100元以下不加分");
+end
+
+// 规则2：100元-500元加100分
+rule "order_rule_2"
+when
+    $order: Order(amount >= 100 && amount < 500)
+then
+    $order.setScore(100);
+    System.out.println("成功匹配到规则二：100元-500元加100分");
+end
+
+// 规则3：500元-1000元加500分
+rule "order_rule_3"
+when
+    $order: Order(amount >= 500 && amount < 1000)
+then
+    $order.setScore(500);
+    System.out.println("成功匹配到规则三：500元-1000元加500分");
+end
+
+// 规则4：1000元以上加1000分
+rule "order_rule_4"
+enabled false
+when
+    $order: Order(amount >= 1000)
+then
+    $order.setScore(1000);
+    System.out.println("成功匹配到规则四：1000元以上加1000分");
+end
+
+// 规则5：定时触发
+rule "order_rule_5"
+date-effective "14-Jan-2025"
+when
+    $order: Order(amount >= 50000)
+then
+    $order.setScore(5000);
+    System.out.println("成功匹配到规则四：1000元以上加1000分");
+end
+
+// 规则6：函数
+rule "order_rule_6"
+date-effective "14-Jan-2025"
+when
+    $order: Order(amount >= 2000 && amount < 10000)
+then
+    double v = calculateDiscount($order.getAmount());
+    $order.setScore(v);
+end
+
+function double calculateDiscount(double amout){
+    if (amout > 1000){
+        return amout * 0.1;
+    } else {
+        return amout * 0.05;
+
+    }
+
+}
+
+query "min" (double minAmout)
+    $order : Order(amount>= minAmout)
+end

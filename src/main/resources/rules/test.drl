@@ -1,0 +1,11 @@
+package com.rules.discount
+import com.wb.rules.entity.Order
+
+rule "VIP用户折扣"
+when
+    $order: Order(amount > 500)
+then
+    System.out.println("11111111");
+    $order.setAmount($order.getAmount() * 0.9);
+    $order.setMessage("VIP用户享受9折优惠");
+end
