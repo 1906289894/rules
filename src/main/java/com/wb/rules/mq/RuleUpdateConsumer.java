@@ -1,19 +1,15 @@
 package com.wb.rules.mq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.rabbitmq.client.Channel;
 import com.wb.rules.event.RuleUpdateEvent;
 import com.wb.rules.service.MessageLogService;
+import com.wb.rules.service.RuleEngineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
-import org.springframework.amqp.support.AmqpHeaders;
-import org.springframework.beans.factory.annotation.Value;
-
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
@@ -22,150 +18,160 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @RequiredArgsConstructor
 public class RuleUpdateConsumer {
-    private final StringRedisTemplate stringRedisTemplate;
+
     private final RuleEngineService ruleEngineService;
     private final MessageLogService messageLogService;
+    private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
-    @Value("${app.mq.max-retry-count:3}")
-    private int maxRetryCount;
+
     private static final String MESSAGE_CACHE_KEY = "rule_update_processed";
 
-    @RabbitListener(queues = "rule.update.queue")
-    public void handleRuleUpdate(Message message, Channel channel,  @Header(AmqpHeaders.DELIVERY_TAG) long deliveryTag) {
-        String msgId = message.getMessageProperties().getCorrelationId();
+    /**
+     * 规则更新消息消费者 - 优化版本
+     * 使用Spring自动重试机制，简化手动重试逻辑
+     */
+    @RabbitListener(queues = "rule.update.queue", containerFactory = "rabbitListenerContainerFactory")
+    @Transactional
+    public void handleRuleUpdate(org.springframework.amqp.core.Message message) {
+        String msgId = getMessageId(message);
         if (msgId == null) {
-            log.error("消息ID为空，拒绝消息");
-            basicNack(channel, deliveryTag, false);
-            return;
+            log.error("消息ID为空，丢弃消息");
+            throw new IllegalArgumentException("消息ID不能为空");
         }
 
         try {
-            //幂等检查
-            if (isMessageprocessed(msgId)){
-                log.info("消息 {} 已处理，直接确认", msgId);
-                basicAck(channel, deliveryTag);
+            // 幂等性检查 - 在业务开始前检查
+            if (isMessageProcessed(msgId)) {
+                log.info("消息已处理，直接跳过: {}", msgId);
                 return;
             }
 
-            // 2. 解析消息内容
+            // 解析消息
             RuleUpdateEvent ruleUpdateEvent = parseMessage(message);
-            if (ruleUpdateEvent == null) {
-                throw new IllegalArgumentException("消息解析失败");
-            }
+            validateRuleUpdateEvent(ruleUpdateEvent);
 
             String ruleVersion = ruleUpdateEvent.getRuleVersion();
             String tenantId = ruleUpdateEvent.getTenantId() != null ? ruleUpdateEvent.getTenantId() : "default";
-            log.info("开始处理规则更新消息: {}, 规则版本: {}, 租户: {}", msgId, ruleVersion, tenantId);
 
-            // 3. 处理业务逻辑
-            boolean success = processRuleUpdate(ruleUpdateEvent, ruleVersion, tenantId);
-            if (success) {
-                // 4. 处理成功，记录幂等性
-                markMessageAsProcessed(msgId);
-                basicAck(channel, deliveryTag);
-                logger.info("规则更新消息处理成功: {}", msgId);
-            } else {
-                throw new RuntimeException("规则处理失败");
-            }
-        }catch (Exception e) {
-            log.error("处理规则更新消息失败: {}", msgId, e);
-            handleProcessingFailure(msgId, deliveryTag, channel, e);
+            log.info("开始处理规则更新消息: {}, 版本: {}, 租户: {}", msgId, ruleVersion, tenantId);
+
+            // 记录消息开始处理（在事务中）
+            // todo messageLogService.recordProcessing(msgId, ruleVersion, tenantId);
+
+            // 处理业务逻辑
+            processRuleUpdate(ruleUpdateEvent, ruleVersion, tenantId);
+
+            // 标记处理成功（在事务中）
+            // todo messageLogService.markSuccess(msgId);
+            markMessageAsProcessed(msgId); // Redis幂等性标记
+
+            log.info("规则更新消息处理成功: {}", msgId);
+
+        } catch (MessageProcessedException e) {
+            // 消息已处理，静默跳过
+            log.info("消息已处理: {}", msgId);
+        } catch (IllegalArgumentException e) {
+            // 参数错误，不重试，直接记录失败
+            log.error("消息参数错误，丢弃消息: {}", msgId, e);
+            messageLogService.recordFailure(msgId, e.getMessage());
+            throw new AmqpRejectAndDontRequeueException("消息参数错误，不重试"); // 直接进入死信队列
+        } catch (Exception e) {
+            // 业务异常，进行重试
+            log.error("处理规则更新消息失败，将进行重试: {}", msgId, e);
+            messageLogService.recordRetry(msgId, e.getMessage());
+            throw new RuntimeException("规则更新处理失败，需要重试", e); // 抛出异常触发重试
         }
     }
 
-    private boolean isMessageProcessed(String msgId) {
-        Boolean exists = redisTemplate.opsForHash().hasKey(MESSAGE_CACHE_KEY, msgId);
-        return Boolean.TRUE.equals(exists);
+    /**
+     * 获取消息ID
+     */
+    private String getMessageId(org.springframework.amqp.core.Message message) {
+        String msgId = message.getMessageProperties().getCorrelationId();
+        if (msgId == null) {
+            // 尝试从消息头获取
+            msgId = (String) message.getMessageProperties().getHeaders().get("msgId");
+        }
+        return msgId;
     }
 
-    private RuleUpdateEvent parseMessage(Message message) {
+    /**
+     * 幂等性检查 - 优先检查Redis，再检查数据库
+     */
+    private boolean isMessageProcessed(String msgId) {
+        // 1. 检查Redis缓存
+        Boolean exists = redisTemplate.opsForHash().hasKey(MESSAGE_CACHE_KEY, msgId);
+        if (Boolean.TRUE.equals(exists)) {
+            return true;
+        }
+
+        // 2. 检查数据库（防止Redis缓存失效）
+        return messageLogService.isMessageProcessed(msgId);
+    }
+
+    /**
+     * 解析消息
+     */
+    private RuleUpdateEvent parseMessage(org.springframework.amqp.core.Message message) {
         try {
             String messageBody = new String(message.getBody(), StandardCharsets.UTF_8);
             return objectMapper.readValue(messageBody, RuleUpdateEvent.class);
         } catch (Exception e) {
-            log.error("消息解析失败", e);
-            return null;
+            log.error("消息解析失败: {}", new String(message.getBody(), StandardCharsets.UTF_8), e);
+            throw new IllegalArgumentException("消息格式错误", e);
         }
     }
 
-    private boolean processRuleUpdate(RuleUpdateEvent event, String ruleVersion, String tenantId) {
+    /**
+     * 验证消息参数
+     */
+    private void validateRuleUpdateEvent(RuleUpdateEvent event) {
+        if (event == null) {
+            throw new IllegalArgumentException("消息内容不能为空");
+        }
+        if (event.getRuleVersion() == null || event.getRuleVersion().trim().isEmpty()) {
+            throw new IllegalArgumentException("规则版本不能为空");
+        }
+    }
+
+    /**
+     * 处理规则更新业务
+     */
+    private void processRuleUpdate(RuleUpdateEvent event, String ruleVersion, String tenantId) {
         try {
-            // 优先使用消息中的规则内容，如果没有则从Redis获取
+            // 优先使用消息中的规则内容
             String ruleContent = event.getRuleContent();
             if (ruleContent == null) {
+                // 从Redis获取规则内容
                 ruleContent = ruleEngineService.getRuleContent(ruleVersion, tenantId);
             }
 
             if (ruleContent == null) {
-                log.error("未找到规则内容，版本: {}, 租户: {}", ruleVersion, tenantId);
-                return false;
+                throw new IllegalArgumentException("未找到规则内容，版本: " + ruleVersion + " 租户: " + tenantId);
             }
 
             // 动态加载规则到Drools引擎
-            return ruleEngineService.loadRule(ruleContent, ruleVersion, tenantId);
+            boolean success = ruleEngineService.loadRule(ruleContent, ruleVersion, tenantId);
+            if (!success) {
+                throw new RuntimeException("规则加载失败");
+            }
 
         } catch (Exception e) {
-            log.error("规则处理异常", e);
-            return false;
+            log.error("规则处理异常: 版本={}, 租户={}", ruleVersion, tenantId, e);
+            throw e; // 重新抛出，让重试机制处理
         }
     }
 
+    /**
+     * 标记消息已处理（Redis幂等性）
+     */
     private void markMessageAsProcessed(String msgId) {
         try {
             redisTemplate.opsForHash().put(MESSAGE_CACHE_KEY, msgId, "processed");
             redisTemplate.expire(MESSAGE_CACHE_KEY, 24, TimeUnit.HOURS);
         } catch (Exception e) {
-            log.warn("记录幂等性失败: {}", msgId, e);
-        }
-    }
-
-    private void handleProcessingFailure(String msgId, Long deliveryTag,
-                                         org.springframework.amqp.rabbit.listener.api.Channel channel, Exception e) {
-        try {
-            MessageLog messageLog = messageLogService.getMessageById(msgId);
-            int currentRetryCount = messageLog != null ? messageLog.getCount() : 0;
-
-            if (currentRetryCount >= maxRetryCount - 1) {
-                logger.warn("消息 {} 已达到最大重试次数，转入死信队列", msgId);
-                recordFailedMessage(msgId, e.getMessage());
-                basicNack(channel, deliveryTag, false); // 不重新入队
-            } else {
-                logger.info("消息 {} 重新放回队列等待重试，当前重试次数: {}", msgId, currentRetryCount);
-                basicNack(channel, deliveryTag, true); // 重新入队
-            }
-        } catch (Exception ex) {
-            logger.error("处理失败逻辑异常", ex);
-            basicNack(channel, deliveryTag, false);
-        }
-    }
-
-    private void recordFailedMessage(String msgId, String errorMsg) {
-        try {
-            String failedKey = MESSAGE_CACHE_KEY + ":failed";
-            redisTemplate.opsForHash().put(failedKey, msgId, errorMsg);
-            redisTemplate.expire(failedKey, 72, TimeUnit.HOURS); // 失败消息保留3天
-        } catch (Exception e) {
-            logger.warn("记录失败消息失败: {}", msgId, e);
-        }
-    }
-
-    private void basicAck(org.springframework.amqp.rabbit.listener.api.Channel channel, Long deliveryTag) {
-        try {
-            if (channel != null && channel.isOpen()) {
-                channel.basicAck(deliveryTag, false);
-            }
-        } catch (IOException e) {
-            logger.error("消息确认失败", e);
-        }
-    }
-
-    private void basicNack(org.springframework.amqp.rabbit.listener.api.Channel channel, Long deliveryTag, boolean requeue) {
-        try {
-            if (channel != null && channel.isOpen()) {
-                channel.basicNack(deliveryTag, false, requeue);
-            }
-        } catch (IOException e) {
-            logger.error("消息拒绝失败", e);
+            log.warn("记录Redis幂等性失败: {}", msgId, e);
+            // Redis操作失败不影响主流程，因为数据库事务已提交
         }
     }
 }

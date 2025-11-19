@@ -1,17 +1,21 @@
 package com.wb.rules.config;
 
+import com.wb.rules.service.MessageLogService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.*;
+import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.retry.interceptor.RetryOperationsInterceptor;
 
 import java.util.HashMap;
 
@@ -20,14 +24,24 @@ import java.util.HashMap;
 @RequiredArgsConstructor
 public class RabbitConfig {
 
+    //todo 这里需要优化
     @Value("${app.mq.max-retry-count:3}")
     private int maxRetryCount;
 
     @Value("${app.mq.message-ttl:10000}")
     private int messageTtl;
+    @Value("${app.mq.retry.initial-interval:1000}")
+    private int initialInterval;
+
+    @Value("${app.mq.retry.multiplier:2.0}")
+    private double multiplier;
+
+    @Value("${app.mq.retry.max-interval:10000}")
+    private int maxInterval;
+
 
     private final CachingConnectionFactory connectionFactory;
-    //private final MessageLogService messageLogService;
+    private final MessageLogService messageLogService;
 
     // 使用Jackson2JsonMessageConverter替代默认的SimpleMessageConverter
     @Bean
@@ -42,21 +56,12 @@ public class RabbitConfig {
         rabbitTemplate.setConfirmCallback((correlationData, ack, cause) -> {
             String msgId = correlationData != null ? correlationData.getId() : "unknown";
             if (ack){
-                //todo 业务更新
                 //messageLogService.updateStatus(msgId, 1); // 更新状态为成功
                 log.info("消息 {} 发送成功", msgId);
             }else{
                 log.error("消息 {} 发送失败，原因: {}", msgId, cause);
             }
         });
-
-        // 消息从Exchange路由到Queue失败的回调
-        rabbitTemplate.setReturnsCallback(returned -> {
-            log.error("消息路由失败，应答码:{}，原因:{}，交换机:{}，路由键:{}，消息:{}",
-                    returned.getReplyCode(), returned.getReplyText(),  returned.getExchange(),
-                    returned.getRoutingKey(), returned.getMessage());
-        });
-
         return rabbitTemplate;
     }
 
@@ -101,9 +106,18 @@ public class RabbitConfig {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(jsonMessageConverter());
-        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        factory.setAcknowledgeMode(AcknowledgeMode.AUTO);
         factory.setPrefetchCount(1);
+        factory.setAdviceChain(retryInterceptor());
         return factory;
     }
 
+    @Bean
+    public RetryOperationsInterceptor retryInterceptor(){
+        return RetryInterceptorBuilder.stateless()
+                .maxAttempts(maxRetryCount)//最大重试次数
+                .backOffOptions(initialInterval, multiplier, maxInterval) // 重试间隔策略
+                .recoverer(new RejectAndDontRequeueRecoverer()) // 最终失败时拒绝并不重新入队（进入死信队列）
+                .build();
+    }
 }
