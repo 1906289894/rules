@@ -2,6 +2,7 @@ package com.wb.rules.mq;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wb.rules.common.exceptions.RuleException;
 import com.wb.rules.entity.MessageLog;
 import com.wb.rules.event.RuleUpdateEvent;
 import com.wb.rules.service.MessageLogService;
@@ -33,14 +34,14 @@ public class RuleUpdateProducer {
         String msgId = UUID.randomUUID().toString();
 
         try {
-            // 1. 验证消息参数
+            // 验证消息参数
             validateRuleUpdateEvent(ruleUpdateEvent);
 
-            // 2. 保存消息记录（状态为待发送）
+            // 保存消息记录（状态为待发送）
             MessageLog messageLog = createMessageLog(msgId, ruleUpdateEvent, 0); // 0-待发送
             messageLogService.insert(messageLog);
 
-            // 3. 发送消息
+            // 发送消息
             rabbitTemplate.convertAndSend(
                     "rule.exchange",
                     "rule.update",
@@ -61,7 +62,7 @@ public class RuleUpdateProducer {
         } catch (Exception e) {
             // 发送失败，更新状态
             handleSendFailure(msgId, ruleUpdateEvent, e);
-            throw new RuntimeException("规则更新消息发送失败", e);
+            throw new RuleException("规则更新消息发送失败");
         }
     }
 
@@ -107,7 +108,7 @@ public class RuleUpdateProducer {
                 if (retryCount > maxRetries) {
                     // 重试次数用尽，标记为最终失败
                     messageLogService.markFinalFailure(msgId, "发送重试次数用尽: " + e.getMessage());
-                    throw new RuntimeException("消息发送失败，重试次数用尽", e);
+                    throw new RuleException("消息发送失败，重试次数用尽");
                 }
 
                 // 指数退避等待
@@ -115,7 +116,7 @@ public class RuleUpdateProducer {
                     Thread.sleep(calculateRetryDelay(retryCount));
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    throw new RuntimeException("消息发送重试被中断", ie);
+                    throw new RuleException("消息发送重试被中断");
                 }
             }
         }
@@ -128,10 +129,10 @@ public class RuleUpdateProducer {
      */
     private void validateRuleUpdateEvent(RuleUpdateEvent event) {
         if (event == null) {
-            throw new IllegalArgumentException("规则更新事件不能为空");
+            throw new RuleException("规则更新事件不能为空");
         }
         if (event.getRuleVersion() == null || event.getRuleVersion().trim().isEmpty()) {
-            throw new IllegalArgumentException("规则版本不能为空");
+            throw new RuleException("规则版本不能为空");
         }
         if (event.getRuleContent() == null || event.getRuleContent().trim().isEmpty()) {
             log.warn("规则内容为空，消费者将尝试从存储加载");
@@ -145,10 +146,9 @@ public class RuleUpdateProducer {
         return MessageLog.builder()
                 .msgId(msgId)
                 .ruleVersion(event.getRuleVersion())
-                .tenantId(event.getTenantId() != null ? event.getTenantId() : "default")
+                .ruleKey(event.getRuleKey())
                 .status(0) // 0-待发送/发送中
                 .count(retryCount)
-                .messageContent(serializeMessageContent(event))
                 .createTime(LocalDateTime.now())
                 .updateTime(LocalDateTime.now())
                 .tryTime(LocalDateTime.now().plusMinutes(1)) // 正确的1分钟后重试

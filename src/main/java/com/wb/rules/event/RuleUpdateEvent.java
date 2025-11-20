@@ -1,5 +1,6 @@
 package com.wb.rules.event;
 
+import jakarta.persistence.Column;
 import lombok.Data;
 
 import java.io.Serial;
@@ -12,5 +13,5 @@ public class RuleUpdateEvent implements Serializable {
     private String ruleVersion;
     private String ruleContent;
     private String ruleType; // DRL, Excel等
-    private String tenantId; // 多租户支持
+    private String ruleKey;
 }

@@ -1,5 +1,6 @@
 package com.wb.rules.service.impl;
 
+import com.wb.rules.common.exceptions.RuleException;
 import com.wb.rules.service.RuleEngineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,8 +27,8 @@ public class RuleEngineServiceImpl implements RuleEngineService {
     private final Map<String, KieContainer> kieContainerMap = new ConcurrentHashMap<>();
 
     @Override
-    public void loadRule(String ruleContent, String ruleVersion, String tenantId) {
-        String sessionKey = buildSessionKey(tenantId, ruleVersion);
+    public void loadRule(String ruleContent, String ruleVersion, String ruleKey) {
+        String sessionKey = buildSessionKey(ruleKey, ruleVersion);
         try {
             KieServices kieServices = KieServices.Factory.get();
             KieFileSystem kfs = kieServices.newKieFileSystem();
@@ -38,6 +39,7 @@ public class RuleEngineServiceImpl implements RuleEngineService {
 
             if (results.hasMessages(Message.Level.ERROR)) {
                 log.error("规则编译错误：{}", results.getMessages());
+                throw new RuleException("规则加载失败");
             }
 
             //释放旧的KieSession
@@ -54,15 +56,16 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             kieContainerMap.put(sessionKey, kieContainer);
 
             //将规则内容缓存到Redis
-            cacheRuleToRedis(ruleContent, ruleVersion, tenantId);
-            log.info("规则引擎更新成功，版本: {}, 租户: {}", ruleVersion, tenantId);
+            cacheRuleToRedis(ruleContent, ruleVersion, ruleKey);
+            log.info("规则引擎更新成功，版本: {}, 租户: {}", ruleVersion, ruleKey);
         }catch (Exception e){
-            log.error("规则引擎更新失败，版本: {}, 租户: {}", ruleVersion, tenantId, e);
+            log.error("规则引擎更新失败，版本: {}, 租户: {}", ruleVersion, ruleKey, e);
+            throw new RuleException("规则加载失败");
         }
     }
 
-    private void cacheRuleToRedis(String ruleContent, String ruleVersion, String tenantId) {
-        String redisKey = "drools_rules:" + tenantId;
+    private void cacheRuleToRedis(String ruleContent, String ruleVersion, String ruleKey) {
+        String redisKey = "drools_rules:" + ruleKey;
         redisTemplate.opsForHash().put(redisKey, ruleVersion, ruleContent);
         //设置过期时间24小时
         redisTemplate.expire(redisKey, 24, TimeUnit.HOURS);
@@ -87,13 +90,13 @@ public class RuleEngineServiceImpl implements RuleEngineService {
         }
     }
 
-    private String buildSessionKey(String tenantId, String ruleVersion) {
-        return tenantId + ":" + ruleVersion;
+    private String buildSessionKey(String ruleKey, String ruleVersion) {
+        return ruleKey + ":" + ruleVersion;
     }
 
     @Override
-    public void executeRule(Object fact, String ruleVersion, String tenantId) {
-        String sessionKey  = buildSessionKey(tenantId, ruleVersion);
+    public void executeRule(Object fact, String ruleVersion, String ruleKey) {
+        String sessionKey  = buildSessionKey(ruleKey, ruleVersion);
         KieSession kieSession = kieSessionMap.get(sessionKey);
 
         if (Objects.nonNull(kieSession)) {
@@ -108,13 +111,13 @@ public class RuleEngineServiceImpl implements RuleEngineService {
                 kieSession.dispose();
             }
         } else {
-            log.warn("未找到对应的规则会话，版本: {}, 租户: {}", ruleVersion, tenantId);
+            log.warn("未找到对应的规则会话，版本: {}, 租户: {}", ruleVersion, ruleKey);
         }
     }
 
     @Override
-    public String getRuleContent(String ruleVersion, String tenantId) {
-        String redisKey = "drools_rules:" + tenantId;
+    public String getRuleContent(String ruleVersion, String ruleKey) {
+        String redisKey = "drools_rules:" + ruleKey;
         return (String) redisTemplate.opsForHash().get(redisKey, ruleVersion);
     }
 }

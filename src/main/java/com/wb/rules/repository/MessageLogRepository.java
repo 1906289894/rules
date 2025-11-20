@@ -26,4 +26,7 @@ public interface MessageLogRepository extends JpaRepository<MessageLog, String> 
     
     @Query("SELECT m FROM MessageLog m WHERE m.msgId = :msgId")
     MessageLog findByMsgId(@Param("msgId") String msgId);
+
+    @Query("SELECT m FROM MessageLog m where m.msgId = :msgId and m.status = :status")
+    MessageLog findByMsgIdAndStatus(String msgId, int status);
 }

@@ -2,39 +2,100 @@ package com.wb.rules.service;
 
 import com.wb.rules.entity.MessageLog;
 import com.wb.rules.repository.MessageLogRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @Transactional
+@Slf4j
 public class MessageLogService {
-    
+
     @Autowired
     private MessageLogRepository messageLogRepository;
-    
+
     public void insert(MessageLog messageLog) {
         messageLogRepository.save(messageLog);
     }
-    
+
     public void updateStatus(String msgId, Integer status) {
         messageLogRepository.updateStatus(msgId, status);
     }
-    
+
     public void updateCount(String msgId, LocalDateTime tryTime) {
         messageLogRepository.updateCount(msgId, tryTime);
     }
-    
+
     public MessageLog getMessageById(String msgId) {
         return messageLogRepository.findByMsgId(msgId);
     }
-    
+
     public List<MessageLog> getNeedRetryMessages() {
         return messageLogRepository.findNeedRetryMessages();
     }
+
+    public boolean isMessageProcessed(String msgId) {
+        try {
+            return Objects.nonNull(messageLogRepository.findByMsgIdAndStatus(msgId, 1));
+        } catch (Exception e) {
+            log.error("检查消息是否已处理失败: {}", msgId, e);
+            return false;
+        }
+    }
+
+    public void recordRetry(String msgId, String errorMsg) {
+        try {
+            MessageLog messageLog = messageLogRepository.findByMsgId(msgId);
+            if (Objects.isNull(messageLog)) {
+                log.warn("消息记录不存在，创建重试记录: {}", msgId);
+                createNewMessageLog(msgId, "unknown", "unknown");
+                return;
+            }
+
+            // 重试时状态仍为处理中，但记录错误信息
+            messageLog.setStatus(0);
+            messageLog.setUpdateTime(LocalDateTime.now());
+            messageLog.setErrorMsg(truncateErrorMsg("重试: " + errorMsg));
+
+            messageLogRepository.save(messageLog);
+            log.debug("记录消息重试: {}, 错误: {}", msgId, errorMsg);
+
+        } catch (Exception e) {
+            log.error("记录消息重试信息失败: {}", msgId, e);
+            // 重试记录操作不抛出异常，避免影响主流程
+        }
+    }
+
+    /**
+     * 创建新的消息记录
+     */
+    private MessageLog createNewMessageLog(String msgId, String ruleVersion, String ruleKey) {
+        MessageLog messageLog = new MessageLog();
+        messageLog.setMsgId(msgId);
+        messageLog.setRuleVersion(ruleVersion);
+        messageLog.setRuleKey(ruleKey);
+        messageLog.setStatus(0);
+        messageLog.setCount(0);
+        messageLog.setCreateTime(LocalDateTime.now());
+        messageLog.setUpdateTime(LocalDateTime.now());
+        return messageLog;
+    }
+
+    /**
+     * 截断错误信息，避免数据库字段过长
+     */
+    private String truncateErrorMsg(String errorMsg) {
+        if (errorMsg == null) {
+            return null;
+        }
+        return errorMsg.length() > 1000 ? errorMsg.substring(0, 1000) : errorMsg;
+    }
+
 
     //    @Override
     //    public void recordProcessing(String msgId, String ruleVersion, String tenantId) {

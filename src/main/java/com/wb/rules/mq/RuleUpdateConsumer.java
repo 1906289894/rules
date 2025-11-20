@@ -1,6 +1,7 @@
 package com.wb.rules.mq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.wb.rules.common.exceptions.RuleException;
 import com.wb.rules.event.RuleUpdateEvent;
 import com.wb.rules.service.MessageLogService;
 import com.wb.rules.service.RuleEngineService;
@@ -36,7 +37,7 @@ public class RuleUpdateConsumer {
         String msgId = getMessageId(message);
         if (msgId == null) {
             log.error("消息ID为空，丢弃消息");
-            throw new IllegalArgumentException("消息ID不能为空");
+            throw new RuleException("消息ID不能为空");
         }
 
         try {
@@ -51,15 +52,15 @@ public class RuleUpdateConsumer {
             validateRuleUpdateEvent(ruleUpdateEvent);
 
             String ruleVersion = ruleUpdateEvent.getRuleVersion();
-            String tenantId = ruleUpdateEvent.getTenantId() != null ? ruleUpdateEvent.getTenantId() : "default";
+            String ruleKey = ruleUpdateEvent.getRuleKey() != null ? ruleUpdateEvent.getRuleKey() : "default";
 
-            log.info("开始处理规则更新消息: {}, 版本: {}, 租户: {}", msgId, ruleVersion, tenantId);
+            log.info("开始处理规则更新消息: {}, 版本: {}, 规则key: {}", msgId, ruleVersion, ruleKey);
 
             // 记录消息开始处理（在事务中）
             // todo messageLogService.recordProcessing(msgId, ruleVersion, tenantId);
 
             // 处理业务逻辑
-            processRuleUpdate(ruleUpdateEvent, ruleVersion, tenantId);
+            processRuleUpdate(ruleUpdateEvent, ruleVersion, ruleKey);
 
             // 标记处理成功（在事务中）
             // todo messageLogService.markSuccess(msgId);
@@ -74,12 +75,12 @@ public class RuleUpdateConsumer {
             // 参数错误，不重试，直接记录失败
             log.error("消息参数错误，丢弃消息: {}", msgId, e);
             messageLogService.recordFailure(msgId, e.getMessage());
-            throw new AmqpRejectAndDontRequeueException("消息参数错误，不重试"); // 直接进入死信队列
+            throw new RuleException("消息参数错误，不重试"); // 直接进入死信队列
         } catch (Exception e) {
             // 业务异常，进行重试
             log.error("处理规则更新消息失败，将进行重试: {}", msgId, e);
             messageLogService.recordRetry(msgId, e.getMessage());
-            throw new RuntimeException("规则更新处理失败，需要重试", e); // 抛出异常触发重试
+            throw new RuleException("规则更新处理失败，需要重试"); // 抛出异常触发重试
         }
     }
 
@@ -118,7 +119,7 @@ public class RuleUpdateConsumer {
             return objectMapper.readValue(messageBody, RuleUpdateEvent.class);
         } catch (Exception e) {
             log.error("消息解析失败: {}", new String(message.getBody(), StandardCharsets.UTF_8), e);
-            throw new IllegalArgumentException("消息格式错误", e);
+            throw new RuleException("消息格式错误");
         }
     }
 
@@ -127,37 +128,32 @@ public class RuleUpdateConsumer {
      */
     private void validateRuleUpdateEvent(RuleUpdateEvent event) {
         if (event == null) {
-            throw new IllegalArgumentException("消息内容不能为空");
+            throw new RuleException("消息内容不能为空");
         }
         if (event.getRuleVersion() == null || event.getRuleVersion().trim().isEmpty()) {
-            throw new IllegalArgumentException("规则版本不能为空");
+            throw new RuleException("规则版本不能为空");
         }
     }
 
     /**
      * 处理规则更新业务
      */
-    private void processRuleUpdate(RuleUpdateEvent event, String ruleVersion, String tenantId) {
+    private void processRuleUpdate(RuleUpdateEvent event, String ruleVersion, String ruleKey) {
         try {
             // 优先使用消息中的规则内容
             String ruleContent = event.getRuleContent();
             if (ruleContent == null) {
                 // 从Redis获取规则内容
-                ruleContent = ruleEngineService.getRuleContent(ruleVersion, tenantId);
+                ruleContent = ruleEngineService.getRuleContent(ruleVersion, ruleKey);
             }
 
             if (ruleContent == null) {
-                throw new IllegalArgumentException("未找到规则内容，版本: " + ruleVersion + " 租户: " + tenantId);
+                throw new RuleException("未找到规则内容，版本: " + ruleVersion + " 规则key: " + ruleKey);
             }
-
             // 动态加载规则到Drools引擎
-            boolean success = ruleEngineService.loadRule(ruleContent, ruleVersion, tenantId);
-            if (!success) {
-                throw new RuntimeException("规则加载失败");
-            }
-
+            ruleEngineService.loadRule(ruleContent, ruleVersion, ruleKey);
         } catch (Exception e) {
-            log.error("规则处理异常: 版本={}, 租户={}", ruleVersion, tenantId, e);
+            log.error("规则处理异常: 版本={}, 规则key={}", ruleVersion, ruleKey, e);
             throw e; // 重新抛出，让重试机制处理
         }
     }
