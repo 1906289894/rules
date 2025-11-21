@@ -1,5 +1,6 @@
 package com.wb.rules.service;
 
+import com.wb.rules.common.enums.MessageStatus;
 import com.wb.rules.entity.MessageLog;
 import com.wb.rules.repository.MessageLogRepository;
 import lombok.extern.slf4j.Slf4j;
@@ -79,11 +80,32 @@ public class MessageLogService {
         messageLog.setMsgId(msgId);
         messageLog.setRuleVersion(ruleVersion);
         messageLog.setRuleKey(ruleKey);
-        messageLog.setStatus(0);
+        messageLog.setStatus(MessageStatus.PROCESSING.getCode());
         messageLog.setCount(0);
         messageLog.setCreateTime(LocalDateTime.now());
         messageLog.setUpdateTime(LocalDateTime.now());
         return messageLog;
+    }
+
+
+    public void recordFailure(String msgId, String errorMsg) {
+        try {
+            MessageLog messageLog = messageLogRepository.findByMsgId(msgId);
+            if (Objects.isNull(messageLog)) {
+                log.warn("消息记录不存在，创建失败记录: {}", msgId);
+                messageLog = createNewMessageLog(msgId, "unknown", "unknown");
+            }
+            messageLog.setStatus(MessageStatus.FAILED.getCode()); // 失败
+            messageLog.setUpdateTime(LocalDateTime.now());
+            messageLog.setErrorMsg(truncateErrorMsg(errorMsg)); // 截断错误信息，避免过长
+
+            messageLogRepository.save(messageLog);
+            log.debug("记录消息处理失败: {}, 错误: {}", msgId, errorMsg);
+
+        } catch (Exception e) {
+            log.error("记录消息失败信息失败: {}", msgId, e);
+            // 失败记录操作不抛出异常，避免影响主流程
+        }
     }
 
     /**

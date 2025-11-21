@@ -7,6 +7,7 @@ import com.wb.rules.service.MessageLogService;
 import com.wb.rules.service.RuleEngineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
@@ -28,8 +29,7 @@ public class RuleUpdateConsumer {
     private static final String MESSAGE_CACHE_KEY = "rule_update_processed";
 
     /**
-     * 规则更新消息消费者 - 优化版本
-     * 使用Spring自动重试机制，简化手动重试逻辑
+     * 规则更新消息消费者
      */
     @RabbitListener(queues = "rule.update.queue", containerFactory = "rabbitListenerContainerFactory")
     @Transactional
@@ -68,19 +68,16 @@ public class RuleUpdateConsumer {
 
             log.info("规则更新消息处理成功: {}", msgId);
 
-        } catch (MessageProcessedException e) {
-            // 消息已处理，静默跳过
-            log.info("消息已处理: {}", msgId);
         } catch (IllegalArgumentException e) {
             // 参数错误，不重试，直接记录失败
             log.error("消息参数错误，丢弃消息: {}", msgId, e);
             messageLogService.recordFailure(msgId, e.getMessage());
-            throw new RuleException("消息参数错误，不重试"); // 直接进入死信队列
+            throw new AmqpRejectAndDontRequeueException("消息参数错误，不重试"); // 直接进入死信队列
         } catch (Exception e) {
             // 业务异常，进行重试
             log.error("处理规则更新消息失败，将进行重试: {}", msgId, e);
             messageLogService.recordRetry(msgId, e.getMessage());
-            throw new RuleException("规则更新处理失败，需要重试"); // 抛出异常触发重试
+            throw new RuleException("规则更新处理失败，需要重试");
         }
     }
 
