@@ -17,10 +17,10 @@ spring:
         dialect: org.hibernate.dialect.MySQL8Dialect
         format_sql: true
   rabbitmq:
-    host: localhost
+    host: 192.168.231.10
     port: 5672
-    username: guest
-    password: guest
+    username: admin
+    password: admin
     publisher-confirm-type: correlated # 生产者确认
     publisher-returns: true # 开启返回机制
     listener:
@@ -33,11 +33,27 @@ spring:
           initial-interval: 2s #重试间隔
           multiplier: 2.0
           max-interval: 10s
+  data:
+    redis:
+      host: 192.168.231.10
+      port: 6379
+      password: 123456
+      database: 0
+      connect-timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
 
 # 日志配置
 logging:
+  charset:
+    console: utf-8
+    file: UTF-8
   level:
-    com.yourcompany.drools: DEBUG
+    com.wb.rules: debug
     org.springframework.amqp: INFO
     org.drools: WARN
   pattern:

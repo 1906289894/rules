@@ -1,8 +1,11 @@
 package com.wb.rules.controller;
 
+import com.wb.rules.common.result.R;
 import com.wb.rules.dto.RuleExecutionResult;
 import com.wb.rules.entity.DroolsRules;
 import com.wb.rules.entity.Order;
+import com.wb.rules.event.RuleUpdateEvent;
+import com.wb.rules.mq.RuleUpdateProducer;
 import com.wb.rules.repository.DroolsRulesRepository;
 import com.wb.rules.service.DroolsDynamicService;
 import com.wb.rules.service.RuleManagementService;
@@ -82,6 +85,16 @@ public class RuleEngineController {
     @GetMapping
     public ResponseEntity<List<DroolsRules>> getAllRules() {
         return ResponseEntity.ok(droolsRulesRepository.findAll());
+    }
+    private final RuleUpdateProducer ruleUpdateProducer;
+    @GetMapping("/testSendMsg")
+    public R<Void> testSendMsg(){
+        RuleUpdateEvent event = new RuleUpdateEvent();
+        event.setRuleContent("test");
+        event.setRuleKey("test");
+        event.setRuleVersion("1.0");
+        ruleUpdateProducer.sendRuleUpdateMessage(event);
+        return R.success();
     }
 
 }

@@ -29,6 +29,7 @@
     <properties>
         <java.version>17</java.version>
         <drools.version>8.41.0.Final</drools.version>
+        <hutool.version>5.8.40</hutool.version>
     </properties>
     <dependencies>
         <dependency>
@@ -77,6 +78,11 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+            <version>${hutool.version}</version>
         </dependency>
     </dependencies>
 

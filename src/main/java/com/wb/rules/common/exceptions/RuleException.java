@@ -16,6 +16,11 @@ public class RuleException extends RuntimeException {
         super(message);
         this.code = code;
     }
+
+    public RuleException(String message, Throwable cause) {
+        super(message, cause);
+        this.code = RuleResultCode.BUSINESS_ERROR.getCode();
+    }
     
     public RuleException(RuleResultCode RuleResultCode) {
         super(RuleResultCode.getMessage());

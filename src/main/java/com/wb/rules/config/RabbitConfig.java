@@ -8,7 +8,6 @@ import org.springframework.amqp.rabbit.config.RetryInterceptorBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.retry.RejectAndDontRequeueRecoverer;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
@@ -56,7 +55,6 @@ public class RabbitConfig {
         rabbitTemplate.setConfirmCallback((correlationData, ack, cause) -> {
             String msgId = correlationData != null ? correlationData.getId() : "unknown";
             if (ack){
-                //messageLogService.updateStatus(msgId, 1); // 更新状态为成功
                 log.info("消息 {} 发送成功", msgId);
             }else{
                 log.error("消息 {} 发送失败，原因: {}", msgId, cause);
@@ -112,6 +110,9 @@ public class RabbitConfig {
         return factory;
     }
 
+    /**
+     * 重试拦截器
+     */
     @Bean
     public RetryOperationsInterceptor retryInterceptor(){
         return RetryInterceptorBuilder.stateless()
