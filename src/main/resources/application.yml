@@ -65,3 +65,6 @@ app:
     max-retry-count: 3
     retry-interval: 60000 # 1分钟
     message-ttl: 10000    # 10秒
+  cache:
+    rule-prefix: "drools:rule:"
+    version-prefix: "drools:version:"

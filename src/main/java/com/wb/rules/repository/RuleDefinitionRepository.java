@@ -1,6 +1,6 @@
 package com.wb.rules.repository;
 
-import com.wb.rules.entity.DroolsRules;
+import com.wb.rules.entity.RuleDefinition;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -8,11 +8,11 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-public interface DroolsRulesRepository extends JpaRepository<DroolsRules, Long> {
+public interface RuleDefinitionRepository extends JpaRepository<RuleDefinition, Long> {
     
-    List<DroolsRules> findByStatusTrue();
+    List<RuleDefinition> findByStatusTrue();
     
-    Optional<DroolsRules> findByRuleKeyAndStatusTrue(String ruleKey);
+    Optional<RuleDefinition> findByRuleKeyAndStatusTrue(String ruleKey);
     
     boolean existsByRuleKey(String ruleKey);
 }

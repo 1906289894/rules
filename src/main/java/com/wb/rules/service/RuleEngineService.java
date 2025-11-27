@@ -1,10 +1,12 @@
 package com.wb.rules.service;
 
+import java.util.Set;
+
 public interface RuleEngineService {
     /**
      * 动态加载规则
      */
-    void loadRule(String ruleContent, String ruleVersion, String ruleKey);
+    void loadRule(String ruleVersion, String ruleKey);
 
     /**
      * 执行规则
@@ -12,7 +14,7 @@ public interface RuleEngineService {
     void executeRule(Object fact, String ruleVersion, String ruleKey);
 
     /**
-     * 获取规则内容
+     * 获取所有已加载的规则键
      */
-    String getRuleContent(String ruleVersion, String ruleKey);
+    Set<String> getLoadedRuleKeys();
 }

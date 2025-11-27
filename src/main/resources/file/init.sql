@@ -1,16 +1,16 @@
-CREATE TABLE `drools_rules` (
+CREATE TABLE `rule_definition` (
                                 `id` bigint(20) NOT NULL AUTO_INCREMENT,
                                 `rule_key` varchar(64) UNIQUE NOT NULL COMMENT '规则唯一标识',
                                 `rule_name` varchar(100) NOT NULL COMMENT '规则名称',
                                 `rule_content` text NOT NULL COMMENT 'DRL规则内容',
-                                `version` int(11) DEFAULT '1' COMMENT '版本号',
+                                `version` varchar(20) DEFAULT '1' COMMENT '版本号',
                                 `status` tinyint(1) DEFAULT '1' COMMENT '状态：0-禁用，1-启用',
                                 `description` varchar(500) DEFAULT NULL COMMENT '规则描述',
                                 `created_time` datetime DEFAULT CURRENT_TIMESTAMP,
                                 `updated_time` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                                 PRIMARY KEY (`id`),
                                 UNIQUE KEY `uk_rule_key` (`rule_key`)
-) ENGINE=InnoDB COMMENT='Drools规则表';
+) ENGINE=InnoDB COMMENT='规则表';
 
 -- 插入示例规则
 INSERT INTO `drools_rules` (`rule_key`, `rule_name`, `rule_content`, `description`) VALUES

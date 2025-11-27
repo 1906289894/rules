@@ -1,14 +1,11 @@
 package com.wb.rules.controller;
 
-import com.wb.rules.common.result.R;
 import com.wb.rules.dto.RuleExecutionResult;
-import com.wb.rules.entity.DroolsRules;
+import com.wb.rules.entity.RuleDefinition;
 import com.wb.rules.entity.Order;
-import com.wb.rules.event.RuleUpdateEvent;
-import com.wb.rules.mq.RuleUpdateProducer;
-import com.wb.rules.repository.DroolsRulesRepository;
-import com.wb.rules.service.DroolsDynamicService;
-import com.wb.rules.service.RuleManagementService;
+import com.wb.rules.repository.RuleDefinitionRepository;
+import com.wb.rules.service.RuleEngineService;
+import com.wb.rules.service.impl.RuleServiceImpl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -23,9 +20,9 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RuleEngineController {
 
-    private final DroolsDynamicService droolsDynamicService;
-    private final RuleManagementService ruleManagementService;
-    private final DroolsRulesRepository droolsRulesRepository;
+    private final RuleEngineService ruleEngineService;
+    private final RuleServiceImpl ruleServiceImpl;
+    private final RuleDefinitionRepository ruleDefinitionRepository;
 
     /**
      * 执行规则接口
@@ -36,8 +33,8 @@ public class RuleEngineController {
             @RequestBody Order order) {
 
         try {
-            Order result = droolsDynamicService.executeRule(ruleKey, order);
-             return ResponseEntity.ok(RuleExecutionResult.success(result));
+             ruleEngineService.executeRule(order, ruleKey, "");
+             return ResponseEntity.ok(RuleExecutionResult.success(order));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(RuleExecutionResult.error(e.getMessage()));
@@ -50,7 +47,7 @@ public class RuleEngineController {
     @PostMapping("/reload/{ruleKey}")
     public ResponseEntity<String> reloadRule(@PathVariable String ruleKey) {
         try {
-            droolsDynamicService.reloadRule(ruleKey);
+            //TODO
             return ResponseEntity.ok("规则重载成功: " + ruleKey);
         } catch (Exception e) {
             return ResponseEntity.badRequest()
@@ -62,9 +59,9 @@ public class RuleEngineController {
      * 创建规则接口
      */
     @PostMapping
-    public ResponseEntity<DroolsRules> createRule(@RequestBody DroolsRules rule) {
+    public ResponseEntity<RuleDefinition> createRule(@RequestBody RuleDefinition rule) {
         try {
-            DroolsRules createdRule = ruleManagementService.createRule(rule);
+            RuleDefinition createdRule = ruleServiceImpl.createRule(rule);
             return ResponseEntity.ok(createdRule);
         } catch (Exception e) {
             throw new RuntimeException("规则创建失败: " + e.getMessage());
@@ -76,25 +73,14 @@ public class RuleEngineController {
      */
     @GetMapping("/loaded")
     public ResponseEntity<Set<String>> getLoadedRules() {
-        return ResponseEntity.ok(droolsDynamicService.getLoadedRuleKeys());
+        return ResponseEntity.ok(ruleEngineService.getLoadedRuleKeys());
     }
 
     /**
      * 获取所有规则定义
      */
     @GetMapping
-    public ResponseEntity<List<DroolsRules>> getAllRules() {
-        return ResponseEntity.ok(droolsRulesRepository.findAll());
+    public ResponseEntity<List<RuleDefinition>> getAllRules() {
+        return ResponseEntity.ok(ruleDefinitionRepository.findAll());
     }
-    private final RuleUpdateProducer ruleUpdateProducer;
-    @GetMapping("/testSendMsg")
-    public R<Void> testSendMsg(){
-        RuleUpdateEvent event = new RuleUpdateEvent();
-        event.setRuleContent("test");
-        event.setRuleKey("test");
-        event.setRuleVersion("1.0");
-        ruleUpdateProducer.sendRuleUpdateMessage(event);
-        return R.success();
-    }
-
 }

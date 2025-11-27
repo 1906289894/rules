@@ -1,7 +1,10 @@
-package com.wb.rules.service;
+package com.wb.rules.service.impl;
 
-import com.wb.rules.entity.DroolsRules;
-import com.wb.rules.repository.DroolsRulesRepository;
+import com.wb.rules.entity.RuleDefinition;
+import com.wb.rules.event.RuleUpdateEvent;
+import com.wb.rules.mq.RuleUpdateProducer;
+import com.wb.rules.repository.RuleDefinitionRepository;
+import com.wb.rules.service.RuleService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.kie.api.builder.Message;
@@ -13,30 +16,34 @@ import org.springframework.stereotype.Service;
 @Service
 @Slf4j
 @RequiredArgsConstructor
-public class RuleManagementService {
-    private final DroolsRulesRepository droolsRulesRepository;
-    private final DroolsDynamicService droolsDynamicService;
+public class RuleServiceImpl implements RuleService {
+    private final RuleDefinitionRepository ruleDefinitionRepository;
+    private final RuleUpdateProducer ruleUpdateProducer;
 
     /**
      * 创建新规则
      */
-    public DroolsRules createRule(DroolsRules rule) {
-        if (droolsRulesRepository.existsByRuleKey(rule.getRuleKey())) {
+    public RuleDefinition createRule(RuleDefinition rule) {
+        if (ruleDefinitionRepository.existsByRuleKey(rule.getRuleKey())) {
             throw new RuntimeException("规则键已存在: " + rule.getRuleKey());
         }
-
         //预编译验证规则语法
         validateRuleContent(rule.getRuleContent());
-        DroolsRules savedRule = droolsRulesRepository.save(rule);
-        droolsDynamicService.reloadRule(rule.getRuleKey());
+        RuleDefinition savedRule = ruleDefinitionRepository.save(rule);
+        RuleUpdateEvent event = RuleUpdateEvent.builder()
+                .ruleType("DRL")
+                .ruleKey(savedRule.getRuleKey())
+                .ruleVersion(savedRule.getVersion())
+                .build();
+        ruleUpdateProducer.sendRuleUpdateMessage(event);
         return savedRule;
     }
 
     /**
      * 更新规则
      */
-    public DroolsRules updateRule(String ruleKey, DroolsRules ruleUpdate) {
-        DroolsRules existingRule = droolsRulesRepository.findByRuleKeyAndStatusTrue(ruleKey)
+    public RuleDefinition updateRule(String ruleKey, RuleDefinition ruleUpdate) {
+        RuleDefinition existingRule = ruleDefinitionRepository.findByRuleKeyAndStatusTrue(ruleKey)
                 .orElseThrow(() -> new RuntimeException("规则不存在: " + ruleKey));
 
         // 验证新规则语法
@@ -47,10 +54,13 @@ public class RuleManagementService {
         existingRule.setDescription(ruleUpdate.getDescription());
         existingRule.setVersion(existingRule.getVersion() + 1);
 
-        DroolsRules updatedRule = droolsRulesRepository.save(existingRule);
-        // 重新加载规则
-        droolsDynamicService.reloadRule(ruleKey);
-
+        RuleDefinition updatedRule = ruleDefinitionRepository.save(existingRule);
+        RuleUpdateEvent event = RuleUpdateEvent.builder()
+                .ruleType("DRL")
+                .ruleKey(updatedRule.getRuleKey())
+                .ruleVersion(updatedRule.getVersion())
+                .build();
+        ruleUpdateProducer.sendRuleUpdateMessage(event);
         return updatedRule;
     }
 

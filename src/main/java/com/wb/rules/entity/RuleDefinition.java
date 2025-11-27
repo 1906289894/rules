@@ -7,8 +7,8 @@ import java.time.LocalDateTime;
 
 @Data
 @Entity
-@Table(name = "drools_rules")
-public class DroolsRules {
+@Table(name = "rule_definition")
+public class RuleDefinition {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -19,7 +19,7 @@ public class DroolsRules {
     private String ruleName;
     @Lob
     private String ruleContent;
-    private Integer version = 1;
+    private String version;
     private Boolean status = true;
     private String description;
     private LocalDateTime createdTime;

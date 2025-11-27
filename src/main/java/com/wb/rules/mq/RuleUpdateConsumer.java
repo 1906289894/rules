@@ -56,7 +56,7 @@ public class RuleUpdateConsumer {
 
             log.info("开始处理规则更新消息: {}, 版本: {}, 规则key: {}", msgId, ruleVersion, ruleKey);
             // 更新规则
-            processRuleUpdate(ruleUpdateEvent, ruleVersion, ruleKey);
+            processRuleUpdate(ruleVersion, ruleKey);
             messageLogService.recordSuccess(msgId, ruleUpdateEvent);
             updateRedis(msgId);
             log.info("规则更新消息处理成功: {}", msgId);
@@ -130,20 +130,10 @@ public class RuleUpdateConsumer {
     /**
      * 处理规则更新业务
      */
-    private void processRuleUpdate(RuleUpdateEvent event, String ruleVersion, String ruleKey) {
+    private void processRuleUpdate(String ruleVersion, String ruleKey) {
         try {
-            // 优先使用消息中的规则内容
-            String ruleContent = event.getRuleContent();
-            if (ruleContent == null) {
-                // 从Redis获取规则内容
-                ruleContent = ruleEngineService.getRuleContent(ruleVersion, ruleKey);
-            }
-
-            if (ruleContent == null) {
-                throw new RuleException("未找到规则内容，版本: " + ruleVersion + " 规则key: " + ruleKey);
-            }
-            // 动态加载规则到Drools引擎
-            ruleEngineService.loadRule(ruleContent, ruleVersion, ruleKey);
+            // 动态加载规则
+            ruleEngineService.loadRule(ruleVersion, ruleKey);
         } catch (Exception e) {
             log.error("规则处理异常: 版本={}, 规则key={}", ruleVersion, ruleKey, e);
             throw e;
