@@ -1,10 +1,13 @@
 package com.wb.rules.service.impl;
 
+import cn.hutool.core.bean.BeanUtil;
+import com.wb.rules.common.exceptions.RuleException;
 import com.wb.rules.entity.RuleDefinition;
 import com.wb.rules.event.RuleUpdateEvent;
 import com.wb.rules.mq.RuleUpdateProducer;
 import com.wb.rules.repository.RuleDefinitionRepository;
 import com.wb.rules.service.RuleService;
+import com.wb.rules.utils.VersionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.kie.api.builder.Message;
@@ -25,15 +28,14 @@ public class RuleServiceImpl implements RuleService {
      */
     public RuleDefinition createRule(RuleDefinition rule) {
         if (ruleDefinitionRepository.existsByRuleKey(rule.getRuleKey())) {
-            throw new RuntimeException("规则键已存在: " + rule.getRuleKey());
+            throw new RuleException("规则键已存在: " + rule.getRuleKey());
         }
         //预编译验证规则语法
         validateRuleContent(rule.getRuleContent());
         RuleDefinition savedRule = ruleDefinitionRepository.save(rule);
         RuleUpdateEvent event = RuleUpdateEvent.builder()
-                .ruleType("DRL")
                 .ruleKey(savedRule.getRuleKey())
-                .ruleVersion(savedRule.getVersion())
+                .ruleVersion(VersionUtil.getVersion())
                 .build();
         ruleUpdateProducer.sendRuleUpdateMessage(event);
         return savedRule;
@@ -42,26 +44,26 @@ public class RuleServiceImpl implements RuleService {
     /**
      * 更新规则
      */
-    public RuleDefinition updateRule(String ruleKey, RuleDefinition ruleUpdate) {
-        RuleDefinition existingRule = ruleDefinitionRepository.findByRuleKeyAndStatusTrue(ruleKey)
+    public RuleDefinition updateRule(RuleDefinition ruleUpdate) {
+        String ruleKey = ruleUpdate.getRuleKey();
+        String currentVersion = ruleUpdate.getVersion();
+        RuleDefinition existingRule = ruleDefinitionRepository.findByRuleKeyAndVersion(ruleKey, currentVersion)
                 .orElseThrow(() -> new RuntimeException("规则不存在: " + ruleKey));
 
         // 验证新规则语法
         validateRuleContent(ruleUpdate.getRuleContent());
 
-        existingRule.setRuleContent(ruleUpdate.getRuleContent());
-        existingRule.setRuleName(ruleUpdate.getRuleName());
-        existingRule.setDescription(ruleUpdate.getDescription());
-        existingRule.setVersion(existingRule.getVersion() + 1);
+        RuleDefinition newRule = BeanUtil.copyProperties(existingRule, RuleDefinition.class);
+        newRule.setId(null);
+        newRule.setVersion(VersionUtil.updateVersion(currentVersion));
 
-        RuleDefinition updatedRule = ruleDefinitionRepository.save(existingRule);
+        ruleDefinitionRepository.save(newRule);
         RuleUpdateEvent event = RuleUpdateEvent.builder()
-                .ruleType("DRL")
-                .ruleKey(updatedRule.getRuleKey())
-                .ruleVersion(updatedRule.getVersion())
+                .ruleKey(newRule.getRuleKey())
+                .ruleVersion(newRule.getVersion())
                 .build();
         ruleUpdateProducer.sendRuleUpdateMessage(event);
-        return updatedRule;
+        return newRule;
     }
 
     /**
@@ -74,10 +76,10 @@ public class RuleServiceImpl implements RuleService {
             Results results = kieHelper.verify();
 
             if (results.hasMessages(Message.Level.ERROR)) {
-                throw new RuntimeException("规则语法错误: " + results.getMessages());
+                throw new RuleException("规则语法错误: " + results.getMessages());
             }
         } catch (Exception e) {
-            throw new RuntimeException("规则验证失败: " + e.getMessage());
+            throw new RuleException("规则验证失败: " + e.getMessage());
         }
     }
 

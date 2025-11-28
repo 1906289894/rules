@@ -22,16 +22,18 @@ import java.util.stream.Collectors;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(RuleException.class)
-    public R<Void> handleRuleException(final RuleException e) {
+    public R<?> handleRuleException(final RuleException e) {
         log.error(e.getMessage(), e);
         return R.error(RuleResultCode.BUSINESS_ERROR.getCode(), e.getMessage());
     }
+
+
 
     /**
      * 处理参数校验异常（@Validated 或 @Valid 触发的校验失败）
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public R<Void> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
+    public R<?> handleMethodArgumentNotValidException(MethodArgumentNotValidException e) {
         String errorMessage = e.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
@@ -43,7 +45,7 @@ public class GlobalExceptionHandler {
      * 处理数据绑定异常
      */
     @ExceptionHandler(BindException.class)
-    public R<Void> handleBindException(BindException e) {
+    public R<?> handleBindException(BindException e) {
         String errorMessage = e.getBindingResult().getFieldErrors().stream()
                 .map(DefaultMessageSourceResolvable::getDefaultMessage)
                 .collect(Collectors.joining("; "));
@@ -56,7 +58,7 @@ public class GlobalExceptionHandler {
      * 处理参数缺失异常
      */
     @ExceptionHandler(MissingServletRequestParameterException.class)
-    public R<Void> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
+    public R<?> handleMissingServletRequestParameterException(MissingServletRequestParameterException e) {
         log.warn("参数缺失: {}", e.getParameterName());
         return R.error(RuleResultCode.PARAM_ERROR.getCode(), "缺少必要参数: " + e.getParameterName());
     }
@@ -75,7 +77,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(NoHandlerFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public R<Void> handleNoHandlerFoundException(NoHandlerFoundException e) {
+    public R<?> handleNoHandlerFoundException(NoHandlerFoundException e) {
         log.warn("接口不存在: {} {}", e.getHttpMethod(), e.getRequestURL());
         return R.error(RuleResultCode.NOT_FOUND);
     }
@@ -84,7 +86,7 @@ public class GlobalExceptionHandler {
      * 处理空指针异常
      */
     @ExceptionHandler(NullPointerException.class)
-    public R<Void> handleNullPointerException(NullPointerException e) {
+    public R<?> handleNullPointerException(NullPointerException e) {
         log.error("空指针异常:", e);
         return R.error(RuleResultCode.SYSTEM_ERROR.getCode(), "系统出现空指针异常");
     }
@@ -93,7 +95,7 @@ public class GlobalExceptionHandler {
      * 处理所有未捕获的异常（兜底处理）
      */
     @ExceptionHandler(Exception.class)
-    public R<Void> handleException(Exception e) {
+    public R<?> handleException(Exception e) {
         log.error("系统异常: ", e);
         return R.error(RuleResultCode.SYSTEM_ERROR);
     }

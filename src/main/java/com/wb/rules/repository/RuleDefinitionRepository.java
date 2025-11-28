@@ -12,7 +12,7 @@ public interface RuleDefinitionRepository extends JpaRepository<RuleDefinition, 
     
     List<RuleDefinition> findByStatusTrue();
     
-    Optional<RuleDefinition> findByRuleKeyAndStatusTrue(String ruleKey);
-    
+    Optional<RuleDefinition> findByRuleKeyAndVersion(String ruleKey, String version);
+    Optional<RuleDefinition> findTopByRuleKeyOrderByVersionDesc(String ruleKey);
     boolean existsByRuleKey(String ruleKey);
 }

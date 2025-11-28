@@ -16,5 +16,5 @@ public interface RuleService {
      * @param ruleUpdate 规则实体
      * @return 规则实体
      */
-    RuleDefinition updateRule(String ruleKey, RuleDefinition ruleUpdate);
+    RuleDefinition updateRule(RuleDefinition ruleUpdate);
 }

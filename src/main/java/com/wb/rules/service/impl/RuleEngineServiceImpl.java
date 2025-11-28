@@ -55,8 +55,7 @@ public class RuleEngineServiceImpl implements RuleEngineService {
             }
 
             // 从Redis或数据库获取规则内容
-
-            RuleDefinition ruleDefinition = ruleDefinitionRepository.findByRuleKeyAndStatusTrue(ruleKey).orElseThrow(() -> new RuleException("未找到规则"));
+            RuleDefinition ruleDefinition = ruleDefinitionRepository.findByRuleKeyAndVersion(ruleKey, ruleVersion).orElseThrow(() -> new RuleException("未找到规则"));
             String ruleContent = ruleDefinition.getRuleContent();
             if (ruleContent == null) {
                 throw new RuntimeException("未找到规则内容");

@@ -1,5 +1,6 @@
 package com.wb.rules.controller;
 
+import com.wb.rules.common.result.R;
 import com.wb.rules.dto.RuleExecutionResult;
 import com.wb.rules.entity.RuleDefinition;
 import com.wb.rules.entity.Order;
@@ -15,7 +16,7 @@ import java.util.List;
 import java.util.Set;
 
 @RestController
-@RequestMapping("/api/rules")
+@RequestMapping("/api/rule")
 @Slf4j
 @RequiredArgsConstructor
 public class RuleEngineController {
@@ -58,14 +59,10 @@ public class RuleEngineController {
     /**
      * 创建规则接口
      */
-    @PostMapping
-    public ResponseEntity<RuleDefinition> createRule(@RequestBody RuleDefinition rule) {
-        try {
-            RuleDefinition createdRule = ruleServiceImpl.createRule(rule);
-            return ResponseEntity.ok(createdRule);
-        } catch (Exception e) {
-            throw new RuntimeException("规则创建失败: " + e.getMessage());
-        }
+    @PostMapping("/add")
+    public R<RuleDefinition> createRule(@RequestBody RuleDefinition rule) {
+        RuleDefinition createdRule = ruleServiceImpl.createRule(rule);
+        return R.success(createdRule);
     }
 
     /**
